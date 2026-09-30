@@ -76,7 +76,8 @@ The final repository will contain collection, cleaning, feature extraction, trai
 | Nov. 26–Dec. 8 | Finish the report, verify the project runs from a clean setup, and record the presentation. |
 | Dec. 9 | Submit the final report and presentation. |
 
-I will schedule both check-ins at least 24 hours in advance.
+October: first check-in with preliminary visualizations, processing, and early modeling
+November: second check-in with more finalized processing, model evaluation, and results
 
 ## Scope and limitations
 
