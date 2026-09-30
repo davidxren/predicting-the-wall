@@ -77,6 +77,7 @@ The final repository will contain collection, cleaning, feature extraction, trai
 | Dec. 9 | Submit the final report and presentation. |
 
 October: first check-in with preliminary visualizations, processing, and early modeling
+
 November: second check-in with more finalized processing, model evaluation, and results
 
 ## Scope and limitations
