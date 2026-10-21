@@ -1,10 +1,4 @@
-"""Download the Boston Marathon 2021-2024 results file and record where it came from.
-
-The file is saved exactly as published, with no edits, to data/raw/.
-A manifest (data/manifest.json) records the source URL, download time, size,
-and sha256 so anyone can confirm they are working from the same file.
-Run from the repo root: python src/download.py
-"""
+# Download the 2021-2024 Boston Marathon file to data/raw and record url, date, size, sha256 in data/manifest.json.
 
 import hashlib
 import json
