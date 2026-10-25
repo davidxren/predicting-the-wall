@@ -57,7 +57,7 @@ Even though the file looked clean, I wrote the rules anyway so the cleaning is e
 
 In total 2 rows were dropped, both from 2023, both because the finish time was lower than the 40K time. That leaves 90,898 rows. The log is written to `data/processed/exclusions.csv`.
 
-The Name column is dropped at this step so that nothing downstream can use it. I'm also deliberately keeping slow runners. A six hour finish is a real result, and dropping outliers by eye would push the dataset toward faster runners, who are the people least likely to hit the wall.
+The Name column is dropped at this step so that nothing downstream can use it. I'm also deliberately keeping slower runners. Even seven-ish hour finishes are real results, and dropping outliers by eye would push the dataset toward faster runners, who are the people least likely to hit the wall.
 
 ## Features
 
