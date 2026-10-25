@@ -46,7 +46,7 @@ The 2021 race was held in October because of COVID and had a smaller field, whic
 
 ## Cleaning
 
-Even though the file looked clean, I wrote the rules anyway so the cleaning is explicit and repeatable, and so nobody has to take my word for it. `src/validate.py` applies four rules in order and counts how many rows each one drops, per year. A row only gets counted against the first rule that catches it, so the counts add up to the total.
+Even though the file looked clean, I wrote the rules anyway so the cleaning is explicit and repeatable. `src/validate.py` applies four rules in order and counts how many rows each one drops, per year. A row only gets counted against the first rule that catches it, so the counts add up to the total.
 
 | Rule | Why |
 | --- | --- |
