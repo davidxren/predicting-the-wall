@@ -1,87 +1,140 @@
 # Predicting the Wall: Early Pacing and Marathon Slowdown
 
-David Ren | Solo project proposal
+David Ren, CS506, Fall 2026
 
-## Project description
+## Status Update
 
-Two runners can reach halfway in the same time after very different first halves. One might hold a steady pace, while the other starts faster and slows at each checkpoint. I want to test whether those differences help predict what happens in the second half.
+For the October check-in, the data side of the project is done. The file is downloaded with a checksum recorded, the cleaning rules are written and logged, and the feature table is built. The two figures are further down. I haven't started modeling yet, that comes next.
 
-This project will use historical Boston Marathon results to answer: Do first-half pacing patterns help predict substantial second-half slowdown beyond what halfway time alone tells us? As a runner, I am interested in whether the way someone reaches halfway matters as much as the time they reach it in.
+The code is in `src/`. `download.py` gets the file, `validate.py` cleans it, `features.py` builds the features and the label, and `plots.py` makes the figures. There are tests in `tests/` for the cleaning rules and the feature math, and GitHub Actions runs them on every push.
 
-I will build a Python analysis that collects race results, checks the split data, extracts pacing features, trains prediction models, and evaluates them on a later race year. The output will be a reproducible analysis with visualizations, not a live coaching app.
+## What the project is about
 
-## Goals and prediction target
+Two runners can hit the halfway mark of a marathon at the same time having run very different first halves. One of them might have run every 5K at the same pace, while the other went out hard and got a little slower at each checkpoint. I want to know whether that difference tells you anything about who is going to fall apart in the second half, once you already know the halfway time.
 
-The primary goal is to test whether individual first-half segments improve average precision on held-out race results compared with using halfway time alone.
+I run, so I have a personal interest in this. The usual way people estimate a finish is to take the halfway time and double it, and I want to see whether the shape of the first half adds anything to that. The result will be a Python analysis anyone can rerun, with the figures and the model comparison in this README.
 
-I will initially define substantial slowdown as taking at least 10% longer to run the second half than the first:
+## What I'm predicting
+
+The thing I'm trying to predict is how much slower a runner's second half was than their first half, as a percentage:
 
     first_half_seconds = HALF
     second_half_seconds = Finish_Net - HALF
     slowdown_percent = 100 * (second_half_seconds / first_half_seconds - 1)
-    substantial_slowdown = slowdown_percent >= 10
 
-For example, a runner completing the first half in 90 minutes and the second half in 99 minutes meets this definition. The 10% cutoff is a project definition, not a medical definition of "hitting the wall." It measures how much a runner slowed, not why. I will also check 5% and 15% cutoffs to see whether the findings depend heavily on this choice.
+So a runner who did the first half in 90 minutes and the second half in 99 minutes slowed down 10%. In the proposal I set the cutoff for a substantial slowdown at 10%, with 5% and 15% as checks. After looking at the data (figure 1 below), 10% turns out to be close to the median in most years, meaning about half the field would count as having hit the wall, which isn't what I meant by substantial. So I'm using 15% as the working cutoff for the figures and probably for the models. All three labels are computed and I'll make the final call once I see how the models behave at each one. Either way, the cutoff only measures how much someone slowed down. It doesn't say anything about why.
 
-A secondary goal is to determine whether pace variation and an early slowing trend add useful information. I will compare models with and without those features. If time permits, I will repeat the prediction task at 10K and 15K to examine how performance changes as more of the race becomes observable.
+## Where the data comes from
 
-## Data source and collection
+I'm using the Boston Marathon dataset that Carnegie Mellon's Department of Statistics & Data Science publishes for teaching: [Boston Marathon times, 2021-2024](https://cmustatistics.github.io/data-repository/sports/boston-marathon.html). Each row is one runner in one year, with their age, an M/F field, their cumulative time at every 5K checkpoint from 5K to 40K, their halfway time, their net finish time, and the year. All the times are in seconds.
 
-I will use [Boston Marathon times, 2021–2024](https://cmustatistics.github.io/data-repository/sports/boston-marathon.html), published by Carnegie Mellon's Department of Statistics & Data Science. Its documentation identifies one row as one runner's performance in a particular year, with age, a recorded M/F field, cumulative checkpoint times from 5K through 40K, halfway time, net finish time, and race year. The times are documented in seconds. These are checkpoints within the same marathon, not the runner's results from separate races.
+The data was originally scraped from the Boston Athletic Association's results pages by Brandon Onyejekwe and Eric Gerber at Northeastern for a [paper on predicting finish times](https://github.com/bonyejekwe/Marathon_Predictor). I'm using their data, and all the code in this repo is mine. My question is also different from theirs.
 
-The repository provides a compressed CSV download. I will write a Python script to download it, save an unchanged local copy, and load it into pandas. The script will check that the expected columns are present and record the source URL, download date, and file checksum. I will report the number of usable performances by year after validation rather than assume every published row is usable.
+`src/download.py` downloads the file, saves it to `data/raw/` without changing anything, and writes `data/manifest.json` with the URL, the download time, the file size, and the sha256 hash. The raw file is gitignored, but the manifest is committed so anyone can check they have the same file I used. The script also stops with an error if any of the 14 columns from CMU's data dictionary is missing.
 
-The data was originally collected from Boston Athletic Association results by Brandon Onyejekwe and Eric A. E. Gerber. Their [source project](https://github.com/bonyejekwe/Marathon_Predictor) provides the collection background and an alternate location for the Boston data. Their work studies finish-time prediction; my analysis will focus on slowdown classification and the value of early pacing detail. I will write my own processing and modeling code.
+Here is what's in the raw file:
 
-## Data cleaning and feature extraction
+| Year | Race date | Rows |
+| --- | --- | --- |
+| 2021 | Oct 11 | 15,121 |
+| 2022 | Apr 18 | 24,489 |
+| 2023 | Apr 17 | 26,028 |
+| 2024 | Apr 15 | 25,262 |
+| Total | | 90,900 |
 
-Although the published data is already tabular, I will validate it before modeling. Checks will cover missing required splits, nonnumeric values, nonpositive or decreasing cumulative times, and exact duplicate race records. I will document exclusions by year and will not remove a slow but valid performance simply because it looks unusual. Names will not be model inputs or appear in published plots.
+The 2021 race was held in October because of COVID and had a smaller field, which is why that year has fewer rows. Before writing any cleaning rules I ran `src/inspect_raw.py`, which prints the column types, missing values per column per year, the range of every time column, the values in M/F, the age range, and the number of duplicate rows. The file turned out to be very clean. There are no missing values in any column, every time column is already an integer, nothing is zero or negative, and there are no exact duplicates. M/F has three values: M (51,208), F (39,622), and X (70). Ages run from 18 to 82.
 
-Cumulative times will be converted into segment paces. For example, pace from 5K to 10K, in seconds per kilometer, is `(time_10K - time_5K) / 5`.
+## Cleaning
 
-| Feature | Planned calculation |
+Even though the file looked clean, I wrote the rules anyway so the cleaning is explicit and repeatable, and so nobody has to take my word for it. `src/validate.py` applies four rules in order and counts how many rows each one drops, per year. A row only gets counted against the first rule that catches it, so the counts add up to the total.
+
+| Rule | Why |
 | --- | --- |
-| Halfway pace | Halfway time divided by 21.0975 km |
-| Early segment paces | Pace for 0–5K, 5–10K, 10–15K, and 15–20K |
-| Pace variation | Standard deviation of those four paces divided by their mean |
-| Early slowing trend | Percentage change from 0–5K pace to 15–20K pace |
-| Runner characteristics | Age and recorded M/F category, tested as additional inputs |
+| Missing 5K, 10K, 15K, 20K, HALF, or Finish Net | These are the columns the features and the label are built from. 25K through 40K are allowed to be missing since they're only used for plots. |
+| A zero or negative time | Impossible for a real split. |
+| A cumulative time lower than the one before it | You can't reach 40K after you've finished. This is a timing mat problem. |
+| An exact duplicate row | The same performance counted twice. |
 
-Every input will be available by halfway. Finish time and later splits will be reserved for outcome calculation and retrospective plots, not prediction inputs. Any learned preprocessing, such as scaling or demographic-value imputation, will be fitted on training data only.
+In total 2 rows were dropped, both from 2023, both because the finish time was lower than the 40K time. That leaves 90,898 rows. The log is written to `data/processed/exclusions.csv`.
 
-## Modeling and evaluation
+The Name column is dropped at this step so that nothing downstream can use it. I'm also deliberately keeping slow runners. A six hour finish is a real result, and dropping outliers by eye would push the dataset toward faster runners, who are the people least likely to hit the wall.
 
-I will start with a logistic regression model using only halfway time. I will compare it with logistic regression using the pacing features and one tree-based model, such as gradient boosting. Age and the recorded M/F field will be added in a separate comparison so their contribution is not mistaken for the value of pacing detail. A constant prediction based on the training-set slowdown rate will provide a basic reference.
+## Features
 
-The planned split is 2021–2022 for training, 2023 for validation, and 2024 for final testing. Model settings and decision thresholds will be selected using the validation year. The final test year will remain untouched by model selection.
+`src/features.py` turns the clean rows into the inputs for the models and the label. Everything used as an input is known by the halfway point. The finish time and the 25K through 40K splits are only used to compute the label and for the retrospective plots.
 
-My main comparison will use average precision, which summarizes the precision-recall curve. I will report the slowdown rate alongside it, plus precision and recall at a threshold chosen on validation data. A calibration plot will compare predicted probabilities with observed slowdown frequencies. The goal is an honest comparison, including cases where the extra features do not help, rather than a promised accuracy before inspecting the data.
-
-Returning runners may appear across years. I will describe this as a test on a later race year, not a test exclusively on previously unseen runners.
-
-## Visualizations and final deliverables
-
-The analysis will include checkpoint pacing profiles for runners with and without substantial slowdown, distributions of slowdown by year, and model-performance plots. Feature comparisons will show whether pacing detail improves on halfway time alone. An optional interactive plot will let a reader view an anonymized first-half pacing profile before revealing the runner's second half.
-
-The final repository will contain collection, cleaning, feature extraction, training, evaluation, and plotting code. The README will become the final report, with environment details and instructions to run, test, and contribute to the code. I will include a Makefile for dependency setup and execution, tests for important calculations and validation rules, and a GitHub Actions workflow that runs those tests. The raw download will stay outside version control. I will also prepare the required 10-minute recorded presentation, upload it to YouTube, and link it near the top of the report.
-
-## Project timeline
-
-| Period | Work and expected output |
+| Feature | How it's calculated |
 | --- | --- |
-| Weeks 1–2: Oct. 1–14 | Implement collection; inspect columns and missing values; validate times; document usable records and the slowdown definition. |
-| Weeks 3–4: Oct. 15–28 | Build pacing features, create initial visualizations, and fit the halfway-time baseline. Attend the October check-in with preliminary results. |
-| Weeks 5–6: Oct. 29–Nov. 11 | Train the fuller models, compare feature sets on the validation year, and examine errors and sensitivity to the slowdown cutoff. |
-| Weeks 7–8: Nov. 12–25 | Finalize model choices, evaluate on 2024, complete the main plots, and strengthen tests and reproducibility. Attend the November check-in. |
-| Nov. 26–Dec. 8 | Finish the report, verify the project runs from a clean setup, and record the presentation. |
-| Dec. 9 | Submit the final report and presentation. |
+| Segment paces (4) | Seconds per km for 0-5K, 5-10K, 10-15K, and 15-20K, e.g. `(time_10K - time_5K) / 5` |
+| Halfway pace | HALF / 21.0975 |
+| Pace variation | Standard deviation of the four segment paces divided by their mean |
+| Slowing trend | Percent change from the 0-5K pace to the 15-20K pace |
+| Age, M/F | Tested separately as additional inputs |
+| Label | `slowed_5`, `slowed_10`, `slowed_15`: 1 if the slowdown is at least that percent |
 
-October: first check-in with preliminary visualizations, processing, and early modeling
+Here is the share of runners over each cutoff, by year, along with the start temperature from [findmymarathon.com](https://www.findmymarathon.com/weather-detail.php?zname=boston+marathon):
 
-November: second check-in with more finalized processing, model evaluation, and results
+| Year | Median slowdown | Over 5% | Over 10% | Over 15% | Start temp |
+| --- | --- | --- | --- | --- | --- |
+| 2021 | 11.7% | 78% | 57% | 39% | 60 F, 88% humidity |
+| 2022 | 8.3% | 67% | 42% | 26% | 46 F |
+| 2023 | 5.8% | 55% | 30% | 16% | 48 F |
+| 2024 | 13.6% | 84% | 64% | 45% | 56 F |
 
-## Scope and limitations
+The base rate moves around a lot from year to year, and the two warmer races have the highest shares. With only four race days there's no way to use temperature as a real feature, so it stays in the discussion. It does matter for the evaluation though, because 2024 is my planned test year and its base rate is quite different from the 2021 and 2022 training years. That's why I'm planning to report calibration along with average precision.
 
-The core project is one marathon, four race years, and one halfway prediction task. Additional checkpoints and the interactive plot are optional. If the scope needs to shrink, I will retain the baseline, full-feature logistic regression, year-based evaluation, and essential plots, and drop the extra model and extensions.
+## Figures
 
-Because the label requires a finish time, the study will not predict who fails to finish. The listed data does not include training history, fueling, or individual race goals, so it cannot establish why someone slowed or whether a different strategy would have prevented it. Any conclusions will be about associations in these Boston results, not a universal pacing recommendation.
+![Slowdown by year](figures/slowdown_by_year.png)
+
+Figure 1 shows the distribution of slowdown percent for each year with the three cutoffs marked. The y axis is the share of that year's runners, so the four years are comparable even though 2021 has a smaller field. The whole distribution shifts from year to year. In 2023 the peak is around 4% and most people stay under 10%, while in 2024 the center is past 10% with a long tail to the right. The 10% line goes through the middle of the field in three of the four years, which is the reason I moved to 15%.
+
+A few things to be aware of with this figure. The x axis is clipped at -20% and 80%, and the 0.2% of runners outside that range are drawn at the edge. Only finishers are in the data, so anyone who dropped out is missing. The bins are 2 points wide, and a different width would change the look without changing the shares.
+
+![Pacing profiles](figures/pacing_profiles.png)
+
+Figure 2 is the main one. For each 5K segment of the first half, it shows the median pace of runners who went on to slow down 15% or more (black) next to runners who didn't (gray), with the 25th to 75th percentile shaded. The panels are bands of halfway time, so within each panel you're comparing runners who reached halfway at roughly the same time. That's the whole point of the figure: if the two groups still look different once halfway time is held fixed, then the shape of the first half is adding information on top of the halfway time.
+
+And they do look different. In every band, the runners who later slowed down ran the first 5K faster and were already running slower by 15 to 20K. The lines cross somewhere around 10 to 15K every time. The shaded bands overlap a lot though, so this is a tendency, and the models will be working with a noisy signal.
+
+Things to keep in mind here: the y axis is different in each panel, so slopes can only be compared within a panel. All four years are pooled, which means the warm years contribute more of the slowed runners. The group sizes are lopsided in the fast bands (564 versus 2,467 in the 70 to 80 minute band). And this is a look back at runners who already slowed, so it isn't a prediction yet.
+
+## Running the code
+
+    python -m venv .venv
+    .venv\Scripts\activate        (on Mac or Linux: source .venv/bin/activate)
+    pip install -r requirements.txt
+    python src/download.py
+    python src/validate.py
+    python src/features.py
+    python src/plots.py
+    pytest -q
+
+If you have make, `make all` runs the four scripts in order and `make test` runs the tests. The processed tables and figures end up in `data/processed/` and `figures/`. The raw download and the processed tables are gitignored, and the figures and the manifest are committed.
+
+## Modeling plan
+
+The baseline is a logistic regression on halfway time alone. I'll compare it against a logistic regression with the pacing features added and against one tree model, probably gradient boosting. Age and M/F go in a separate comparison so I can tell their contribution apart from the pacing features. A constant prediction at the training set's slowdown rate is the floor everything gets compared to.
+
+I'm training on 2021 and 2022, using 2023 for validation and 2024 as the final test. All settings and thresholds get picked on 2023, and I won't touch 2024 until the end.
+
+The main metric is average precision, reported next to the base rate so it's interpretable, plus precision and recall at a threshold chosen on the validation year and a calibration plot. If the pacing features turn out to add nothing, that's still a result and I'll report it as one.
+
+One caveat on the split: runners come back year after year, so some people in the 2024 test set also appear in the training years. This is a test on a later race, and I'll describe it that way.
+
+## Timeline
+
+| Period | Work |
+| --- | --- |
+| Oct 1 to 14 | Download, inspect, and validate the data, settle the slowdown definition. Done. |
+| Oct 15 to 28 | Features, first figures, and the halfway time baseline. October check-in. Features and figures are done, the baseline is next. |
+| Oct 29 to Nov 11 | Train the fuller models, compare feature sets on 2023, check how sensitive the results are to the cutoff. |
+| Nov 12 to 25 | Final model choices, evaluate on 2024, finish the plots and tests. November check-in. |
+| Nov 26 to Dec 8 | Write up the report, confirm everything runs from a fresh clone, record the presentation. |
+| Dec 9 | Submit. |
+
+## Limitations
+
+The project covers one marathon, four years, and one prediction task at the halfway point. Repeating the prediction at 10K and 15K and the interactive plot from the proposal are extras if there's time. If I have to cut scope, I'll keep the baseline, the logistic regression with all the features, the year based evaluation, and the two figures, and drop the tree model.
+
+Because the label needs a finish time, nothing here can predict who drops out of the race. The data also has nothing about training, fueling, or what time someone was going for, so it can't explain why anyone slowed down or whether a different strategy would have helped. Whatever I find is about patterns in these Boston results and shouldn't be read as pacing advice.
