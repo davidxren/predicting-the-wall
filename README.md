@@ -4,9 +4,11 @@ David Ren, CS506, Fall 2026
 
 ## Status Update
 
-For the October check-in, the data side of the project is done. The file is downloaded with a checksum recorded, the cleaning rules are written and logged, and the feature table is built. The two figures are further down. I haven't started modeling yet, that comes next.
+For October, I finished collecting and cleaning the data, building the features, and making the first two figures.
 
-The code is in `src/`. `download.py` gets the file, `validate.py` cleans it, `features.py` builds the features and the label, and `plots.py` makes the figures. There are tests in `tests/` for the cleaning rules and the feature math, and GitHub Actions runs them on every push.
+For November, I trained logistic regression and gradient boosting models and compared different feature sets, tree sizes, and slowdown cutoffs. I also added two figures showing model performance.
+
+All six tests pass locally. The models have been evaluated on 2023, with 2024 reserved for final testing.
 
 ## What the project is about
 
@@ -101,40 +103,114 @@ Things to keep in mind here: the y axis is different in each panel, so slopes ca
 
 ## Running the code
 
+I'm using Python 3.12. To reproduce the results, set up a virtual environment and install the dependencies.
+
     python -m venv .venv
-    .venv\Scripts\activate        (on Mac or Linux: source .venv/bin/activate)
-    pip install -r requirements.txt
+
+Activate the environment (Windows PowerShell):
+
+    .\.venv\Scripts\Activate.ps1
+
+On Mac or Linux:
+
+    source .venv/bin/activate
+
+Then run:
+
+    python -m pip install -r requirements.txt
     python src/download.py
     python src/validate.py
     python src/features.py
     python src/plots.py
-    pytest -q
+    python src/model.py
+    python src/experiments.py
+    python -m pytest -q
 
-If you have make, `make all` runs the four scripts in order and `make test` runs the tests. The processed tables and figures end up in `data/processed/` and `figures/`. The raw download and the processed tables are gitignored, and the figures and the manifest are committed.
+If you have make, run `make install`, `make all`, and `make test` instead.
 
-## Modeling plan
+The raw and processed data are gitignored. The figures are saved in `figures/`. GitHub Actions runs the tests on each push.
 
-The baseline is a logistic regression on halfway time alone. I'll compare it against a logistic regression with the pacing features added and against one tree model, probably gradient boosting. Age and M/F go in a separate comparison so I can tell their contribution apart from the pacing features. A constant prediction at the training set's slowdown rate is the floor everything gets compared to.
 
-I'm training on 2021 and 2022, using 2023 for validation and 2024 as the final test. All settings and thresholds get picked on 2023, and I won't touch 2024 until the end.
+## Modeling
 
-The main metric is average precision, reported next to the base rate so it's interpretable, plus precision and recall at a threshold chosen on the validation year and a calibration plot. If the pacing features turn out to add nothing, that's still a result and I'll report it as one.
+I started with logistic regression on halfway time alone, then added pace variation and slowing trend to see how much they helped. I also tried gradient boosting using those same three inputs. Age and M/F are left out for now since the main question is about pacing.
 
-One caveat on the split: runners come back year after year, so some people in the 2024 test set also appear in the training years. This is a test on a later race, and I'll describe it that way.
+The models are trained on 2021 and 2022 (39,610 records) and validated on 2023 (26,026 records). I used 2023 to compare features and model settings. I'm saving 2024 for the final model evaluation.
+
+I'm mainly looking at average precision (AP), with ROC AUC and Brier score as additional metrics. Only 15.64% of runners in 2023 slowed down by at least 15%, so a model that predicts no slowdown for everyone would already be right about 84% of the time.
+
+## November results
+
+All results below are from the 2023 validation set. The main cutoff is a 15% slowdown.
+
+| Model | Average precision | ROC AUC | Brier score |
+| --- | ---: | ---: | ---: |
+| Constant baseline | 0.1564 | 0.5000 | 0.1548 |
+| Logistic regression (halfway only) | 0.2812 | 0.6751 | 0.1467 |
+| Logistic regression (with pacing) | 0.4534 | 0.7848 | 0.1153 |
+| Gradient boosting | 0.4768 | 0.8046 | 0.1130 |
+
+The constant baseline predicts the training slowdown rate for every runner. Adding the pacing features to logistic regression increased AP from 0.2812 to 0.4534. Gradient boosting did a little better, but most of the improvement came from adding the features rather than switching models.
+
+### Feature comparison
+
+| Logistic regression inputs | AP | ROC AUC |
+| --- | ---: | ---: |
+| Halfway only | 0.2812 | 0.6751 |
+| Halfway + variation | 0.3997 | 0.7638 |
+| Halfway + trend | 0.4464 | 0.7708 |
+| Halfway + both | 0.4534 | 0.7848 |
+
+Slowing trend was the more useful feature on its own, although using both gave the best result. Variation tells us how inconsistent someone's pace was, while trend tells us whether they were getting faster or slower.
+
+### Tree size
+
+| Maximum leaves | AP | ROC AUC |
+| --- | ---: | ---: |
+| 7 | 0.4768 | 0.8046 |
+| 15 | 0.4746 | 0.8040 |
+| 31 | 0.4723 | 0.8026 |
+
+I kept the number of boosting iterations at 100 and the learning rate at 0.1. The larger trees didn't help on 2023, so I'm using 7 leaves for now. The differences are pretty small.
+
+### Slowdown cutoff
+
+| Cutoff | Positive rate | Halfway only (AP) | With pacing (AP) |
+| --- | ---: | ---: | ---: |
+| 5% | 55.0% | 0.6830 | 0.7986 |
+| 10% | 29.5% | 0.4676 | 0.6261 |
+| 15% | 15.6% | 0.2812 | 0.4534 |
+
+The pacing features helped at all three cutoffs. AP depends on how common the positive class is, so the useful comparison here is between the two models at each cutoff, not between cutoffs.
+
+### Performance figures
+
+![Precision-recall curves](figures/precision_recall.png)
+
+Figure 3 shows how precision and recall change as the prediction threshold changes. Both pacing models generally perform better than the halfway-only model. The dotted horizontal line is the 2023 slowdown rate.
+
+![Calibration curves](figures/calibration.png)
+
+Figure 4 shows whether the predicted probabilities match what actually happened. Each point represents a group of runners with similar predicted probabilities. Most points are below the diagonal, which means the models generally overestimate slowdown risk in 2023.
+
+This may partly be because the training slowdown rate was 30.75%, compared to 15.64% in 2023. The models seem better at ranking runners by risk than estimating their exact probabilities.
 
 ## Timeline
 
 | Period | Work |
 | --- | --- |
-| Oct 1 to 14 | Download, inspect, and validate the data, settle the slowdown definition. Done. |
-| Oct 15 to 28 | Features, first figures, and the halfway time baseline. October check-in. Features and figures are done, the baseline is next. |
-| Oct 29 to Nov 11 | Train the fuller models, compare feature sets on 2023, check how sensitive the results are to the cutoff. |
-| Nov 12 to 25 | Final model choices, evaluate on 2024, finish the plots and tests. November check-in. |
-| Nov 26 to Dec 8 | Write up the report, confirm everything runs from a fresh clone, record the presentation. |
+| Oct 1 to 14 | Data collection and cleaning. Done. |
+| Oct 15 to 28 | Features, initial figures, and October check-in. Done. |
+| Oct 29 to Nov 25 | Modeling, experiments, performance figures, and November check-in. Modeling and figures done. |
+| Nov 26 to Dec 8 | Evaluate on 2024, look at prediction errors, finish report and record presentation. |
 | Dec 9 | Submit. |
 
-## Limitations
+## Limitations and next steps
 
-The project covers one marathon, four years, and one prediction task at the halfway point. Repeating the prediction at 10K and 15K and the interactive plot from the proposal are extras if there's time. If I have to cut scope, I'll keep the baseline, the logistic regression with all the features, the year based evaluation, and the two figures, and drop the tree model.
+The results look promising, but so far I've only compared models on 2023. The next step is to evaluate the selected models on 2024 without tuning them on that year's results.
 
-Because the label needs a finish time, nothing here can predict who drops out of the race. The data also has nothing about training, fueling, or what time someone was going for, so it can't explain why anyone slowed down or whether a different strategy would have helped. Whatever I find is about patterns in these Boston results and shouldn't be read as pacing advice.
+Some runners may appear in multiple years. Splitting by year tests how well the model works on a later race, not necessarily on completely different runners.
+
+The dataset only includes Boston Marathon finishers. It doesn't have information about training, fueling, injuries, or goal times, so I can't use the results to explain why someone slowed down. There are also only four race years, and the slowdown rates differ quite a bit between them.
+
+For the final report I want to see whether the improvement from pacing holds up on 2024 and look at the runners the models get wrong.
