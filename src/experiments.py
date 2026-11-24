@@ -4,7 +4,7 @@ from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import make_pipeline
 
-from model import evaluate
+from model import evaluate, split_years
 
 
 def logistic():
@@ -16,8 +16,7 @@ def logistic():
 
 def main():
     df = pd.read_csv("data/processed/features.csv")
-    train = df[df["Year"].isin([2021, 2022])]
-    valid = df[df["Year"] == 2023]
+    train, valid = split_years(df)
 
     feature_sets = {
         "Halfway only": ["HALF"],

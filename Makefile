@@ -2,9 +2,9 @@
 
 PYTHON ?= python
 
-.PHONY: all install data clean features figures test
+.PHONY: all install data clean features figures model experiments test
 
-all: figures
+all: figures model experiments
 
 install:
 	$(PYTHON) -m pip install -r requirements.txt
@@ -21,5 +21,12 @@ features: clean
 figures: features
 	$(PYTHON) src/plots.py
 
+
+model: features
+	$(PYTHON) src/model.py
+
+experiments: features
+	$(PYTHON) src/experiments.py
+	
 test:
 	$(PYTHON) -m pytest -q

@@ -17,6 +17,11 @@ def evaluate(name, y, probabilities):
     }
 
 
+def split_years(df):
+    train = df[df["Year"].isin([2021, 2022])]
+    valid = df[df["Year"] == 2023]
+    return train, valid
+
 def main():
     df = pd.read_csv("data/processed/features.csv")
 
