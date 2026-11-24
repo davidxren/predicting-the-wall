@@ -8,6 +8,8 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker
 import numpy as np
 import pandas as pd
+from sklearn.metrics import precision_recall_curve, average_precision_score
+from sklearn.calibration import calibration_curve
 
 matplotlib.use("Agg")
 
@@ -80,6 +82,67 @@ def pacing_profiles(df: pd.DataFrame, out: Path, cutoff: int = 15) -> None:
     fig.text(0.01, 0.005, "Line is the median, band is the 25th to 75th percentile. 2021-2024 pooled. Y range differs by panel.", fontsize=8, color="#444444")
     fig.tight_layout(rect=(0, 0.02, 1, 0.96))
     fig.savefig(out, dpi=150)
+    plt.close(fig)
+
+def plot_model_results(y, predictions):
+    FIGURES_DIR.mkdir(exist_ok=True)
+
+    styles = {
+        "Halfway only": ("#999999", "--"),
+        "Halfway + pacing": ("#555555", "-."),
+        "Gradient boosting": ("black", "-"),
+    }
+
+    fig, ax = plt.subplots(figsize=(7, 5))
+
+    ax.axhline(y.mean(), color="#bbbbbb", linestyle=":",
+               label=f"Baseline (AP = {y.mean():.3f})")
+
+    for name, scores in predictions.items():
+        color, style = styles[name]
+        precision, recall, _ = precision_recall_curve(y, scores)
+        ap = average_precision_score(y, scores)
+
+        ax.plot(recall, precision, color=color, linestyle=style,
+                label=f"{name} (AP = {ap:.3f})")
+
+    ax.set_xlabel("Recall")
+    ax.set_ylabel("Precision")
+    ax.set_title("Predicting 15%+ slowdown (2023)", loc="left")
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.legend(frameon=False, fontsize=9)
+    ax.grid(color="#e6e6e6", linewidth=0.6)
+
+    fig.tight_layout()
+    fig.savefig(FIGURES_DIR / "precision_recall.png", dpi=150)
+    plt.close(fig)
+
+    fig, ax = plt.subplots(figsize=(7, 5))
+
+    ax.plot([0, 1], [0, 1], ":", color="#bbbbbb",
+            label="Perfect calibration")
+
+    for name, scores in predictions.items():
+        color, style = styles[name]
+        observed, predicted = calibration_curve(
+            y, scores, n_bins=10, strategy="quantile"
+        )
+
+        ax.plot(predicted, observed, color=color,
+                linestyle=style, marker="o", markersize=4,
+                label=name)
+
+    ax.set_xlabel("Predicted slowdown probability")
+    ax.set_ylabel("Observed slowdown rate")
+    ax.set_title("Model calibration (2023, 15% cutoff)", loc="left")
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.legend(frameon=False, fontsize=9)
+    ax.grid(color="#e6e6e6", linewidth=0.6)
+
+    fig.tight_layout()
+    fig.savefig(FIGURES_DIR / "calibration.png", dpi=150)
     plt.close(fig)
 
 

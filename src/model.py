@@ -5,6 +5,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import make_pipeline
 from sklearn.metrics import average_precision_score, roc_auc_score, brier_score_loss
 from sklearn.ensemble import HistGradientBoostingClassifier
+from plots import plot_model_results
 
 
 def evaluate(name, y, probabilities):
@@ -32,6 +33,7 @@ def main():
     print(f"Validation slowdown rate: {y_valid.mean():.2%}")
 
     results = []
+    predictions = {}
 
     # using constant baseline using the training slowdown rate.
     baseline = np.full(len(valid), y_train.mean())
@@ -55,13 +57,14 @@ def main():
         model.fit(train[features], y_train)
         probabilities = model.predict_proba(valid[features])[:, 1]
 
+        predictions[name] = probabilities
         results.append(evaluate(name, y_valid, probabilities))
 
     features = feature_sets["Halfway + pacing"]
 
     model = HistGradientBoostingClassifier(
         max_iter=100,
-        max_leaf_nodes=15,
+        max_leaf_nodes=7,
         learning_rate=0.1,
         random_state=42,
         early_stopping=False,
@@ -70,10 +73,12 @@ def main():
     model.fit(train[features], y_train)
     probabilities = model.predict_proba(valid[features])[:, 1]
 
+    predictions["Gradient boosting"] = probabilities
     results.append(evaluate("Gradient boosting", y_valid, probabilities))
 
     print()
     print(pd.DataFrame(results).round(4).to_string(index=False))
+    plot_model_results(y_valid, predictions)
 
 
 if __name__ == "__main__":
